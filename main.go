@@ -30,13 +30,14 @@ type model struct {
 	body         string
 	uriInput     textinput.Model
 	jsonViewport viewport.Model
+	history      []string
 }
 
-func (m model) Init() tea.Cmd {
+func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
@@ -48,12 +49,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyEnter:
 			m.status = "fetching"
-			return m, fetchPost(m.uriInput.Value())
+			return m, m.navigateTo(m.uriInput.Value())
 		}
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+
+			if msg.X >= 0 && msg.X <= 8 && msg.Y >= 0 && msg.Y <= 2 {
+				//m.status = fmt.Sprintf("x: %d, y: %d", msg.X, msg.Y)
+				m.status = "back button clicked"
+				return m, m.navigateBack()
+			}
+
 			lines := strings.Split(m.body, "\n")
-			headerHeight := 4
+			headerHeight := 7
 			lineIdx := msg.Y - headerHeight + m.jsonViewport.YOffset
 			if lineIdx < len(lines) {
 				line := strings.TrimSpace(lines[lineIdx])
@@ -63,13 +71,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(matches) > 1 {
 					uri := matches[1]
 					m.status = uri
-					return m, fetchPost(uri)
+					return m, m.navigateTo(uri)
 				} else {
-					style := lipgloss.NewStyle().
-						Bold(true).
-						Foreground(lipgloss.Color("#FAFAFA")).
-						Background(lipgloss.Color("#7D56F4"))
-					m.status = style.Render(line)
+					m.status = line
 				}
 			}
 		}
@@ -94,30 +98,66 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m model) View() string {
-	s := fmt.Sprintf("Status: %s\n\n", m.status)
+func (m *model) View() string {
+	s := ""
+
+	backBtnStyle := lipgloss.NewStyle().
+		Width(8).
+		Align(lipgloss.Center).
+		BorderStyle(lipgloss.NormalBorder())
+
+	s += backBtnStyle.Render("Back")
+
+	s += "\n"
 
 	s += m.uriInput.View()
+
+	s += fmt.Sprintf("\n\nStatus: %s", m.status)
 
 	s += fmt.Sprintf("\n\n%s", m.jsonViewport.View())
 
 	return s
 }
 
-func initialModel() model {
+func initialModel() *model {
 	ti := textinput.New()
-	ti.Placeholder = "Enter post URL"
+	ti.Placeholder = "Enter URL"
 	ti.Focus()
 	ti.CharLimit = 1024
 	ti.Width = 80
 
 	vp := viewport.New(80, 32)
 
-	return model{
+	return &model{
 		status:       "init",
 		uriInput:     ti,
 		jsonViewport: vp,
+		history:      []string{},
 	}
+}
+
+func (m *model) navigateTo(uri string) tea.Cmd {
+
+	lastIdx := len(m.history) - 1
+	if lastIdx >= 0 {
+		curUri := m.history[lastIdx]
+		if curUri == uri {
+			return nil
+		}
+	}
+
+	m.history = append(m.history, uri)
+	return fetchPost(uri)
+}
+
+func (m *model) navigateBack() tea.Cmd {
+	lastIdx := len(m.history) - 1
+	if lastIdx < 1 {
+		return nil
+	}
+	prevUri := m.history[lastIdx-1]
+	m.history = m.history[:lastIdx]
+	return fetchPost(prevUri)
 }
 
 func fetchPost(uri string) tea.Cmd {
