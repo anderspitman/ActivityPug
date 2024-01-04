@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type resMsg struct {
@@ -51,11 +52,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			lines := strings.Split(m.jsonViewport.View(), "\n")
+			lines := strings.Split(m.body, "\n")
 			headerHeight := 4
-			lineIdx := msg.Y - headerHeight
+			lineIdx := msg.Y - headerHeight + m.jsonViewport.YOffset
 			if lineIdx < len(lines) {
 				line := strings.TrimSpace(lines[lineIdx])
+				// TODO: don't recompile regex every time
 				re := regexp.MustCompile(`"(https://.*)"`)
 				matches := re.FindStringSubmatch(line)
 				if len(matches) > 1 {
@@ -63,16 +65,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = uri
 					return m, fetchPost(uri)
 				} else {
-					m.status = line
+					style := lipgloss.NewStyle().
+						Bold(true).
+						Foreground(lipgloss.Color("#FAFAFA")).
+						Background(lipgloss.Color("#7D56F4"))
+					m.status = style.Render(line)
 				}
 			}
-
-			m.status = fmt.Sprintf("%s", msg.String())
 		}
 	case resMsg:
 		m.status = fmt.Sprintf("fetched: %d", msg.statusCode)
 		m.body = msg.body
-		m.jsonViewport.SetContent(msg.body)
+
+		var highlightBuf strings.Builder
+		quick.Highlight(&highlightBuf, msg.body, "json", "terminal256", "monokai")
+
+		m.jsonViewport.SetContent(highlightBuf.String())
 	case errMsg:
 		m.status = "error"
 	}
@@ -103,7 +111,7 @@ func initialModel() model {
 	ti.CharLimit = 1024
 	ti.Width = 80
 
-	vp := viewport.New(144, 32)
+	vp := viewport.New(80, 32)
 
 	return model{
 		status:       "init",
@@ -139,13 +147,10 @@ func fetchPost(uri string) tea.Cmd {
 
 		indentStr := indentBuf.String()
 
-		var highlightBuf strings.Builder
-
-		quick.Highlight(&highlightBuf, indentStr, "json", "terminal256", "monokai")
-
 		return resMsg{
 			statusCode: res.StatusCode,
-			body:       highlightBuf.String(),
+			//body:       highlightBuf.String(),
+			body: indentStr,
 		}
 	}
 }

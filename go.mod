@@ -1,4 +1,4 @@
-module github.com/anderspitman/activitypug
+module github.com/anderspitman/ActivityPug
 
 go 1.20
 
