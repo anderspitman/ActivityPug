@@ -150,6 +150,7 @@ func (m *model) navigateTo(uri string) tea.Cmd {
 	}
 
 	m.history = append(m.history, uri)
+	m.uriInput.SetValue(uri)
 	return fetchPost(uri)
 }
 
@@ -160,6 +161,7 @@ func (m *model) navigateBack() tea.Cmd {
 	}
 	prevUri := m.history[lastIdx-1]
 	m.history = m.history[:lastIdx]
+	m.uriInput.SetValue(prevUri)
 	return fetchPost(prevUri)
 }
 
