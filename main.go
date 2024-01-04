@@ -61,7 +61,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			lines := strings.Split(m.body, "\n")
-			headerHeight := 7
+			headerHeight := 6
 			lineIdx := msg.Y - headerHeight + m.jsonViewport.YOffset
 			if lineIdx < len(lines) {
 				line := strings.TrimSpace(lines[lineIdx])
@@ -112,9 +112,12 @@ func (m *model) View() string {
 
 	s += m.uriInput.View()
 
-	s += fmt.Sprintf("\n\nStatus: %s", m.status)
+	s += fmt.Sprintf("\nStatus: %s", m.status)
 
-	s += fmt.Sprintf("\n\n%s", m.jsonViewport.View())
+	codeStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.NormalBorder())
+
+	s += fmt.Sprintf("\n%s", codeStyle.Render(m.jsonViewport.View()))
 
 	return s
 }
