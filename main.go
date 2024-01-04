@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,7 +70,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				re := regexp.MustCompile(`"(https://.*)"`)
 				matches := re.FindStringSubmatch(line)
 				if len(matches) > 1 {
-					uri := matches[1]
+					formatted := fmt.Sprintf("\"%s\"", matches[1])
+					uri, err := strconv.Unquote(formatted)
+					if err != nil {
+						m.status = "Error: " + err.Error()
+						return m, nil
+					}
+
 					m.status = uri
 					return m, m.navigateTo(uri)
 				} else {
@@ -151,6 +158,7 @@ func (m *model) navigateTo(uri string) tea.Cmd {
 
 	m.history = append(m.history, uri)
 	m.uriInput.SetValue(uri)
+	m.jsonViewport.SetYOffset(0)
 	return fetchPost(uri)
 }
 
@@ -162,6 +170,7 @@ func (m *model) navigateBack() tea.Cmd {
 	prevUri := m.history[lastIdx-1]
 	m.history = m.history[:lastIdx]
 	m.uriInput.SetValue(prevUri)
+	m.jsonViewport.SetYOffset(0)
 	return fetchPost(prevUri)
 }
 
