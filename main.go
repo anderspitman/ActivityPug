@@ -38,6 +38,8 @@ func (m *model) Init() tea.Cmd {
 	return nil
 }
 
+const HeaderHeight = 5
+
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmds []tea.Cmd
@@ -62,8 +64,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			lines := strings.Split(m.body, "\n")
-			headerHeight := 5
-			lineIdx := msg.Y - headerHeight + m.jsonViewport.YOffset
+			lineIdx := msg.Y - HeaderHeight + m.jsonViewport.YOffset
 			if lineIdx < len(lines) {
 				line := strings.TrimSpace(lines[lineIdx])
 				// TODO: don't recompile regex every time
@@ -84,6 +85,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case tea.WindowSizeMsg:
+		m.jsonViewport.Width = msg.Width - 2
+		m.jsonViewport.Height = msg.Height - HeaderHeight - 2
+		m.status = "size"
 	case resMsg:
 		m.status = fmt.Sprintf("fetched: %d", msg.statusCode)
 		m.body = msg.body
@@ -120,7 +125,8 @@ func (m *model) View() string {
 	s += m.uriInput.View()
 
 	codeStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.NormalBorder())
+		BorderStyle(lipgloss.NormalBorder()).
+		Width(m.jsonViewport.Width)
 
 	s += fmt.Sprintf("\n%s", codeStyle.Render(m.jsonViewport.View()))
 
