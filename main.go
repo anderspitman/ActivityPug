@@ -2,11 +2,16 @@ package main
 
 import (
 	"bytes"
+	"crypto/rsa"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,6 +37,9 @@ type model struct {
 	uriInput     textinput.Model
 	jsonViewport viewport.Model
 	history      []string
+	rootUri      string
+	privKey      *rsa.PrivateKey
+	logFile      *os.File
 }
 
 func (m *model) Init() tea.Cmd {
@@ -135,7 +143,7 @@ func (m *model) View() string {
 	return s
 }
 
-func initialModel() *model {
+func newModel(rootUri string, privKey *rsa.PrivateKey, logFile *os.File) *model {
 	ti := textinput.New()
 	ti.Placeholder = "Enter URL"
 	ti.Focus()
@@ -149,6 +157,9 @@ func initialModel() *model {
 		uriInput:     ti,
 		jsonViewport: vp,
 		history:      []string{},
+		rootUri:      rootUri,
+		privKey:      privKey,
+		logFile:      logFile,
 	}
 }
 
@@ -164,7 +175,7 @@ func (m *model) navigateTo(uri string) tea.Cmd {
 
 	m.history = append(m.history, uri)
 	m.uriInput.SetValue(uri)
-	return fetchPost(uri)
+	return m.fetchPost(uri)
 }
 
 func (m *model) navigateBack() tea.Cmd {
@@ -175,10 +186,10 @@ func (m *model) navigateBack() tea.Cmd {
 	prevUri := m.history[lastIdx-1]
 	m.history = m.history[:lastIdx]
 	m.uriInput.SetValue(prevUri)
-	return fetchPost(prevUri)
+	return m.fetchPost(prevUri)
 }
 
-func fetchPost(uri string) tea.Cmd {
+func (m *model) fetchPost(uri string) tea.Cmd {
 	return func() tea.Msg {
 		c := &http.Client{Timeout: 3 * time.Second}
 
@@ -187,7 +198,19 @@ func fetchPost(uri string) tea.Cmd {
 			return errMsg{err}
 		}
 
-		req.Header.Add("Accept", "application/activity+json")
+		parsedUrl, err := url.Parse(uri)
+		dateHeader := time.Now().UTC().Format(http.TimeFormat)
+
+		req.Header.Set("Accept", "application/activity+json")
+		req.Header.Set("Date", dateHeader)
+		req.Header.Set("Host", parsedUrl.Host)
+
+		pubKeyId := fmt.Sprintf("%s#main-key", m.rootUri)
+
+		err = sign(m.privKey, pubKeyId, req)
+		if err != nil {
+			return errMsg{err}
+		}
 
 		res, err := c.Do(req)
 		if err != nil {
@@ -214,7 +237,76 @@ func fetchPost(uri string) tea.Cmd {
 }
 
 func main() {
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
+
+	rootUriArg := flag.String("root-uri", "", "Root URI")
+	preferredUsernameArg := flag.String("preferred-username", "", "Preferred username")
+	nameArg := flag.String("name", "", "Name")
+	flag.Parse()
+
+	rootUri := *rootUriArg
+	preferredUsername := *preferredUsernameArg
+	name := *nameArg
+
+	privPemPath := filepath.Join("./", "private_key.pem")
+	_, err := os.Stat(privPemPath)
+	if err != nil {
+		privKey, err := MakeRSAKey()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = SaveRSAKey(privPemPath, privKey)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+	}
+
+	privKey, err := LoadRSAKey(privPemPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	publicKeyPem, err := GetPublicKeyPem(privKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	actor := &Actor{
+		Context:           []string{"https://www.w3.org/ns/activitystreams"},
+		Type:              "Person",
+		Id:                rootUri,
+		PreferredUsername: preferredUsername,
+		Name:              name,
+		Inbox:             fmt.Sprintf("%s/inbox", rootUri),
+		Outbox:            fmt.Sprintf("%s/outbox", rootUri),
+		Followers:         fmt.Sprintf("%s/followers", rootUri),
+		PublicKey: &PublicKey{
+			Id:           fmt.Sprintf("%s#main-key", rootUri),
+			Owner:        rootUri,
+			PublicKeyPem: publicKeyPem,
+		},
+	}
+
+	logFile, err := tea.LogToFile("debug.log", "debug")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer logFile.Close()
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+
+		fmt.Fprintf(logFile, "%s\n", r.URL.Path)
+
+		w.Header().Set("Content-Type", "application/activity+json")
+		json.NewEncoder(w).Encode(actor)
+	})
+
+	go func() {
+		http.ListenAndServe(":9004", nil)
+	}()
+
+	p := tea.NewProgram(newModel(rootUri, privKey, logFile), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v", err)
 		os.Exit(1)
